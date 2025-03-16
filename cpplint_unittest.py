@@ -7181,10 +7181,8 @@ def run_around_tests(pytestconfig: pytest.Config):
     # obviously we're not going to see all the error categories.  So we
     # only run VerifyAllCategoriesAreSeen() when we don't filter for
     # specific tests.
-    assert pytestconfig.getoption("-k", default=None) in [None, ""]
-    if pytestconfig.getoption("-k", default=None) in [None, ""]:
+    if pytestconfig.getoption("-k", default=None) in {None, ""}:
         ErrorCollector(None).VerifyAllCategoriesAreSeen()
-        print("IIIIIIIIII saw the TV glow")
 
 
 if __name__ == "__main__":
