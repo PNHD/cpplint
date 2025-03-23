@@ -60,7 +60,7 @@ def codecs_latin_encode(x):
 class ErrorCollector:
     # These are a global list, covering all categories seen ever.
     _ERROR_CATEGORIES = cpplint._ERROR_CATEGORIES
-    _SEEN_ERROR_CATEGORIES: dict[str, str] = {}
+    _SEEN_ERROR_CATEGORIES: set[str] = set()
 
     def __init__(self, assert_fn):
         """assert_fn: a function to call when we notice a problem."""
@@ -74,7 +74,7 @@ class ErrorCollector:
             'Message "%s" has category "%s",'
             " which is not in _ERROR_CATEGORIES" % (message, category),
         )
-        self._SEEN_ERROR_CATEGORIES[category] = 1
+        self._SEEN_ERROR_CATEGORIES.add(category)
         if cpplint._ShouldPrintError(category, confidence, filename, linenum):
             self._errors.append("%s  [%s] [%d]" % (message, category, confidence))
 
@@ -257,10 +257,7 @@ class CpplintTestBase:
 
     def TestMultiLineLintRE(self, code, expected_message_re):
         message = self.PerformMultiLineLint(code)
-        if not re.search(expected_message_re, message):
-            self.fail(
-                "Message was:\n" + message + 'Expected match to "' + expected_message_re + '"'
-            )
+        assert re.search(expected_message_re, message)
 
     def TestLanguageRulesCheck(self, file_name, code, expected_message):
         assert expected_message == self.PerformLanguageRulesCheck(file_name, code)
@@ -321,7 +318,8 @@ class TestCpplint(CpplintTestBase):
     def testNamespaceIndentationIndentedParameter(self):
         lines = [
             "namespace Test {",
-            "void foo(    SuperLongTypeName d = 418) { }",
+            "void foo(SuperLongTypeName d = 418,",
+            "   SuperLongTypeName e = 2.71) { }",
             "}  // namespace Test",
         ]
 
@@ -5260,8 +5258,7 @@ class TestCpplint(CpplintTestBase):
             error_collector,
         )
         for line in error_collector.ResultList():
-            if line.find("build/header_guard") != -1:
-                self.fail("Unexpected error: %s" % line)
+            assert "build/header_guard" not in line
 
         # No header guard errors for old-style guard
         error_collector = ErrorCollector(self.assertTrue)
@@ -5276,8 +5273,7 @@ class TestCpplint(CpplintTestBase):
             error_collector,
         )
         for line in error_collector.ResultList():
-            if line.find("build/header_guard") != -1:
-                self.fail("Unexpected error: %s" % line)
+            assert "build/header_guard" not in line
 
         old_verbose_level = cpplint._cpplint_state.verbose_level
         try:
@@ -5721,10 +5717,9 @@ class TestCpplint(CpplintTestBase):
     def TestLintLogCodeOnError(self, code, expected_message):
         # Special TestLint which logs the input code on error.
         result = self.PerformSingleLineLint(code)
-        if result != expected_message:
-            self.fail(
-                'For code: "%s"\nGot: "%s"\nExpected: "%s"' % (code, result, expected_message)
-            )
+        assert result == expected_message, (
+            f'For code: "{code}"\nGot: "{result}"\nExpected: "{expected_message}"'
+        )
 
     def testBuildStorageClass(self):
         qualifiers = [None, "const", "volatile"]
@@ -5822,17 +5817,15 @@ class TestCpplint(CpplintTestBase):
         # Test that warning isn't issued if Copyright line appears early enough.
         error_collector = ErrorCollector(self.assertTrue)
         cpplint.ProcessFileData(file_path, "cc", [copyright_line], error_collector)
-        for message in error_collector.ResultList():
-            if message.find("legal/copyright") != -1:
-                self.fail("Unexpected error: %s" % message)
+        for line in error_collector.ResultList():
+            assert "legal/copyright" not in line
 
         error_collector = ErrorCollector(self.assertTrue)
         cpplint.ProcessFileData(
             file_path, "cc", ["" for unused_i in range(9)] + [copyright_line], error_collector
         )
-        for message in error_collector.ResultList():
-            if message.find("legal/copyright") != -1:
-                self.fail("Unexpected error: %s" % message)
+        for line in error_collector.ResultList():
+            assert "legal/copyright" not in line
 
     def testInvalidIncrement(self):
         self.TestLint(
@@ -7183,7 +7176,9 @@ def run_around_tests(pytestconfig: pytest.Config):
     # obviously we're not going to see all the error categories.  So we
     # only run VerifyAllCategoriesAreSeen() when we don't filter for
     # specific tests.
-    if pytestconfig.getoption("-k", default=None) in {None, ""}:
+    if pytestconfig.getoption("-k", default=None) in {None, ""} and not any(
+        "::" in arg for arg in pytestconfig.args
+    ):
         ErrorCollector(None).VerifyAllCategoriesAreSeen()
 
 
