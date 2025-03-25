@@ -934,10 +934,6 @@ _SED_FIXUPS = {
     "Missing space after ,": r"s/,\([^ ]\)/, \1/g",
 }
 
-# {str, set(int)}: a map from error categories to sets of linenumbers
-# on which those errors are expected and should be suppressed.
-_error_suppressions: dict[str, set[int]] = {}
-
 # The root directory used for deriving header guard CPP variable.
 # This is set by --root flag.
 _root = None
@@ -1036,7 +1032,9 @@ class ErrorSuppressions:
         self._open_block_suppression = None
 
 
-_error_suppressions = ErrorSuppressions()  # type: ignore[assignment]
+# {str, set(int)}: a map from error categories to sets of linenumbers
+# on which those errors are expected and should be suppressed.
+_error_suppressions = ErrorSuppressions()
 
 
 def ProcessHppHeadersOption(val):
@@ -1166,12 +1164,7 @@ def ParseNolintSuppressions(filename, raw_line, linenum, error):
                     )
 
 
-def ProcessGlobalSuppresions(lines):
-    """Deprecated; use ProcessGlobalSuppressions."""
-    ProcessGlobalSuppressions(lines)
-
-
-def ProcessGlobalSuppressions(lines):
+def ProcessGlobalSuppressions(filename: str, lines: list[str]) -> None:
     """Updates the list of global error suppressions.
 
     Parses any lint directives in the file that have global effect.
@@ -1179,9 +1172,10 @@ def ProcessGlobalSuppressions(lines):
     Args:
       lines: An array of strings, each representing a line of the file, with the
              last element being empty if the file is terminated with a newline.
+      filename: str, the name of the input file.
     """
     for line in lines:
-        if _SEARCH_C_FILE.search(line):
+        if _SEARCH_C_FILE.search(line) or filename.lower().endswith((".c", ".cu")):
             for category in _DEFAULT_C_SUPPRESSED_CATEGORIES:
                 _error_suppressions.AddGlobalSuppression(category)
         if _SEARCH_KERNEL_FILE.search(line):
@@ -7279,7 +7273,7 @@ def ProcessFileData(filename, file_extension, lines, error, extra_check_function
     ResetNolintSuppressions()
 
     CheckForCopyright(filename, lines, error)
-    ProcessGlobalSuppressions(lines)
+    ProcessGlobalSuppressions(filename, lines)
     RemoveMultiLineComments(filename, lines, error)
     clean_lines = CleansedLines(lines)
 
