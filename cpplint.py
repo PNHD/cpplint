@@ -308,8 +308,14 @@ _ERROR_CATEGORIES = [
     "build/include_order",
     "build/include_what_you_use",
     "build/namespaces_headers",
-    "build/namespaces_literals",
-    "build/namespaces",
+    "build/namespaces/header/block/literals",
+    "build/namespaces/header/block/nonliterals",
+    "build/namespaces/header/namespace/literals",
+    "build/namespaces/header/namespace/nonliterals",
+    "build/namespaces/source/block/literals",
+    "build/namespaces/source/block/nonliterals",
+    "build/namespaces/source/namespace/literals",
+    "build/namespaces/source/namespace/nonliterals",
     "build/printf_format",
     "build/storage_class",
     "legal/copyright",
@@ -935,6 +941,16 @@ _SED_FIXUPS = {
     "Missing space after ,": r"s/,\([^ ]\)/, \1/g",
 }
 
+# Used for backwards compatibility and ease of use
+_FILTER_SHORTCUTS = {
+    "build/namespaces_literals": [
+        "build/namespaces/header/block/literals",
+        "build/namespaces/header/namespace/literals",
+        "build/namespaces/source/block/literals",
+        "build/namespaces/source/namespace/literals",
+    ]
+}
+
 # The root directory used for deriving header guard CPP variable.
 # This is set by --root flag.
 _root = None
@@ -1457,7 +1473,12 @@ class _CppLintState:
         for filt in filters.split(","):
             clean_filt = filt.strip()
             if clean_filt:
-                self.filters.append(clean_filt)
+                if len(clean_filt) > 1 and clean_filt[1:] in _FILTER_SHORTCUTS:
+                    starting_char = clean_filt[0]
+                    new_filters = [starting_char + x for x in _FILTER_SHORTCUTS[clean_filt[1:]]]
+                    self.filters.extend(new_filters)
+                else:
+                    self.filters.append(clean_filt)
         for filt in self.filters:
             if not filt.startswith(("+", "-")):
                 msg = f"Every filter in --filters must start with + or - ({filt} does not)"
@@ -3286,6 +3307,14 @@ class NestingState:
           True if the top of the stack is a block containing inline ASM.
         """
         return self.stack and self.stack[-1].inline_asm != _NO_ASM
+
+    def InBlockScope(self):
+        """Check if we are currently one level inside a block scope.
+
+        Returns:
+          True if top of the stack is a block scope, False otherwise.
+        """
+        return len(self.stack) > 0 and not isinstance(self.stack[-1], _NamespaceInfo)
 
     def InTemplateArgumentList(self, clean_lines, linenum, pos):
         """Check if current position is inside template argument list.
@@ -6021,22 +6050,26 @@ def CheckLanguage(
         )
 
     if re.search(r"\busing namespace\b", line):
-        if re.search(r"\bliterals\b", line):
-            error(
-                filename,
-                linenum,
-                "build/namespaces_literals",
-                5,
-                "Do not use namespace using-directives.  Use using-declarations instead.",
-            )
-        else:
-            error(
-                filename,
-                linenum,
-                "build/namespaces",
-                5,
-                "Do not use namespace using-directives.  Use using-declarations instead.",
-            )
+        is_literals = re.search(r"\bliterals\b", line) is not None
+        is_header = not _IsSourceExtension(file_extension)
+        file_type = "header" if is_header else "source"
+
+        # Check for the block scope for multiline blocks.
+        # Check if the line starts with the using directive as a heuristic in case it's all one line
+        is_block_scope = nesting_state.InBlockScope() or not line.startswith("using namespace")
+
+        scope_type = "block" if is_block_scope else "namespace"
+        literal_type = "literals" if is_literals else "nonliterals"
+
+        specific_category = f"build/namespaces/{file_type}/{scope_type}/{literal_type}"
+
+        error(
+            filename,
+            linenum,
+            specific_category,
+            5,
+            "Do not use namespace using-directives.  Use using-declarations instead.",
+        )
 
     # Detect variable-length arrays.
     match = re.match(r"\s*(.+::)?(\w+) [a-z]\w*\[(.+)];", line)
