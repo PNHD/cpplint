@@ -4506,6 +4506,15 @@ class TestCpplint(CpplintTestBase):
         )
         self.TestMultiLineLint(
             """
+#define MACRO \
+if (func1())  \
+return false; \
+              \
+func2();""",
+            "",
+        )
+        self.TestMultiLineLint(
+            """
         if constexpr (foo) {
           goto fail;
           goto fail;

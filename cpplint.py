@@ -4962,7 +4962,8 @@ def CheckBraces(filename, clean_lines, linenum, error):
                             "Else clause should be indented at the same level as if. "
                             "Ambiguous nested if/else chains require braces.",
                         )
-                    elif next_indent > if_indent:
+                    # assume blank line with \ at the end (for macros) = de-indent
+                    elif next_indent > if_indent and not re.match(r"\s*\\", next_line):
                         error(
                             filename,
                             linenum,
