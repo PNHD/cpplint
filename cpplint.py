@@ -4533,7 +4533,7 @@ def CheckOperatorSpacing(filename, clean_lines, linenum, error):
     #
     # We also allow operators following an opening parenthesis, since
     # those tend to be macros that deal with operators.
-    match = re.search(r"(operator|[^\s(<])(?:L|UL|LL|ULL|l|ul|ll|ull)?<<([^\s,=<])", line)
+    match = re.search(r"(operator|[^\s(<])(?i:U|UL|ULL|L|LL|LU|LLU)?<<([^\s,=<])", line)
     if (
         match
         and not (match.group(1).isdigit() and match.group(2).isdigit())
