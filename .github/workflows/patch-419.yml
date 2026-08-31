@@ -1,0 +1,162 @@
+name: Apply issue 419 patch
+
+on:
+  push:
+    branches:
+      - ops/419-patch-worker
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out target branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/419-github-output-format
+          fetch-depth: 0
+
+      - name: Apply GitHub Actions output-format patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("cpplint.py")
+          text = path.read_text(encoding="utf-8")
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one match, found {count}: {old[:80]!r}")
+              text = text.replace(old, new, 1)
+
+          old_formats = "emacs|eclipse|vs7|junit|sed|gsed"
+          count = text.count(old_formats)
+          if count != 2:
+              raise SystemExit(f"Expected two help/usage format lists, found {count}")
+          text = text.replace(old_formats, "emacs|eclipse|vs7|github|junit|sed|gsed")
+
+          replace_once(
+              '_MACHINE_OUTPUTS = ["junit", "sed", "gsed"]',
+              '_MACHINE_OUTPUTS = ["github", "junit", "sed", "gsed"]',
+          )
+
+          replace_once(
+              '        # "junit" - format that Jenkins, Bamboo, etc can parse\n'
+              '        # "sed" - returns a gnu sed command to fix the problem',
+              '        # "junit" - format that Jenkins, Bamboo, etc can parse\n'
+              '        # "github" - GitHub Actions workflow-command annotations\n'
+              '        # "sed" - returns a gnu sed command to fix the problem',
+          )
+
+          replace_once(
+              "      eclipse (eclipse), and JUnit (junit). XML parsers such as those used\n"
+              "      in Jenkins and Bamboo may also be used.\n"
+              "      The sed format outputs sed commands that should fix some of the errors.",
+              "      eclipse (eclipse), GitHub Actions annotations (github), and JUnit (junit).\n"
+              "      XML parsers such as those used in Jenkins and Bamboo may also be used.\n"
+              "      The github format writes workflow-command warning annotations to stdout.\n"
+              "      The sed format outputs sed commands that should fix some of the errors.",
+          )
+
+          helper_marker = "\ndef Error(filename, linenum, category, confidence, message):\n"
+          helpers = '''\ndef _EscapeGithubCommandData(value):\n    """Escapes workflow-command message data for GitHub Actions."""\n    return str(value).replace("%", "%25").replace("\\r", "%0D").replace("\\n", "%0A")\n\n\ndef _EscapeGithubCommandProperty(value):\n    """Escapes a workflow-command property value for GitHub Actions."""\n    return _EscapeGithubCommandData(value).replace(":", "%3A").replace(",", "%2C")\n\n\ndef Error(filename, linenum, category, confidence, message):\n'''
+          replace_once(helper_marker, helpers)
+
+          replace_once(
+              '        elif _cpplint_state.output_format == "junit":\n'
+              '            _cpplint_state.AddJUnitFailure(filename, linenum, message, category, confidence)',
+              '        elif _cpplint_state.output_format == "github":\n'
+              '            properties = f"file={_EscapeGithubCommandProperty(filename)}"\n'
+              '            if linenum > 0:\n'
+              '                properties += f",line={linenum}"\n'
+              '            properties += ",title=cpplint"\n'
+              '            data = _EscapeGithubCommandData(\n'
+              '                f"{message}  [{category}] [{confidence}]"\n'
+              '            )\n'
+              '            sys.stdout.write(f"::warning {properties}::{data}\\n")\n'
+              '        elif _cpplint_state.output_format == "junit":\n'
+              '            _cpplint_state.AddJUnitFailure(filename, linenum, message, category, confidence)',
+          )
+
+          replace_once(
+              '            if val not in ("emacs", "vs7", "eclipse", "junit", "sed", "gsed"):',
+              '            if val not in ("emacs", "vs7", "eclipse", "github", "junit", "sed", "gsed"): ',
+          )
+          # Remove the deliberate trailing space introduced above so diff stays clean.
+          text = text.replace('("emacs", "vs7", "eclipse", "github", "junit", "sed", "gsed"): \n',
+                              '("emacs", "vs7", "eclipse", "github", "junit", "sed", "gsed"):\n')
+
+          replace_once(
+              '                    "The only allowed output formats are emacs, vs7, eclipse sed, gsed and junit."',
+              '                    "The only allowed output formats are emacs, vs7, eclipse, github, sed, gsed and junit."',
+          )
+
+          path.write_text(text, encoding="utf-8")
+
+          test_path = Path("cpplint_clitest.py")
+          tests = test_path.read_text(encoding="utf-8")
+          marker = '\n\nif __name__ == "__main__":\n'
+          if tests.count(marker) != 1:
+              raise SystemExit("Could not locate cpplint_clitest.py insertion point")
+          addition = r'''
+
+
+def test_github_output(tmp_path):
+    cpp = tmp_path / "test.cpp"
+    cpp.write_text(
+        "// Copyright 2026 cpplint\n"
+        "int main() {\n"
+        "  return 0; \n"
+        "}\n"
+    )
+
+    status, out, err = run_shell_command(
+        BASE_CMD, "--output=github test.cpp", cwd=str(tmp_path)
+    )
+
+    assert status == 1
+    assert err == b""
+    assert out == (
+        b"::warning file=test.cpp,line=3,title=cpplint::"
+        b"Line ends in whitespace.  Consider deleting these extra spaces.  "
+        b"[whitespace/end_of_line] [4]\n"
+    )
+
+
+def test_github_output_escaping():
+    assert cpplint._EscapeGithubCommandData("100%\r\n") == "100%25%0D%0A"
+    assert cpplint._EscapeGithubCommandProperty("a,b:c") == "a%2Cb%3Ac"
+'''
+          tests = tests.replace(marker, addition + marker, 1)
+          test_path.write_text(tests, encoding="utf-8")
+          PY
+
+          git diff --check
+
+      - name: Install test dependencies
+        run: python -m pip install -e '.[dev]'
+
+      - name: Run focused regression tests
+        run: python -m pytest --no-cov cpplint_clitest.py -k github_output -vv
+
+      - name: Run full test suite
+        run: python -m pytest -q
+
+      - name: Run pylint on changed Python files
+        run: python -m pylint cpplint.py cpplint_clitest.py
+
+      - name: Commit verified patch
+        shell: bash
+        run: |
+          git status --short
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cpplint.py cpplint_clitest.py
+          git commit -m "feat: add GitHub Actions output format"
+          git push origin HEAD:fix/419-github-output-format
