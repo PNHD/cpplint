@@ -32,21 +32,35 @@ jobs:
           path = Path("cpplint_unittest.py")
           text = path.read_text(encoding="utf-8")
           function_start = text.index("    def testBuildInclude(self):")
+          signature_end = function_start + len("    def testBuildInclude(self):")
+          text = text[:function_start] + "    def testBuildInclude(self, tmp_path):" + text[signature_end:]
+
+          function_start = text.index("    def testBuildInclude(self, tmp_path):")
           start = text.index("        self.TestLint(\n            '#include \"foo.h\"'", function_start)
           end = text.index("        self.TestLint(\n            '#include \"package/impl.c++\"'", start)
           replacement = (
+              "        repo = tmp_path / \"repo\"\n"
+              "        repo.mkdir()\n"
+              "        (repo / \".git\").mkdir()\n"
+              "        root_source = repo / \"foo.cc\"\n"
+              "        root_source.write_text(\"\")\n"
+              "        source_dir = repo / \"src\"\n"
+              "        source_dir.mkdir()\n"
+              "        nested_source = source_dir / \"foo.cc\"\n"
+              "        nested_source.write_text(\"\")\n"
+              "\n"
               "        self.TestLanguageRulesCheck(\n"
-              "            \"foo.cc\",\n"
+              "            str(root_source),\n"
               "            '#include \"foo.h\"',\n"
               "            \"\",\n"
               "        )\n"
               "        self.TestLanguageRulesCheck(\n"
-              "            \"src/foo.cc\",\n"
+              "            str(nested_source),\n"
               "            '#include \"foo.h\"',\n"
               "            \"Include the directory when naming header files  [build/include_subdir] [4]\",\n"
               "        )\n"
               "        self.TestLanguageRulesCheck(\n"
-              "            \"src/foo.cc\",\n"
+              "            str(nested_source),\n"
               "            '#include \"bar.hh\"',\n"
               "            \"Include the directory when naming header files  [build/include_subdir] [4]\",\n"
               "        )\n"
