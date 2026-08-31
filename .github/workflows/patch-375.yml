@@ -31,34 +31,27 @@ jobs:
 
           path = Path("cpplint_unittest.py")
           text = path.read_text(encoding="utf-8")
-          old = '''        self.TestLint(
-              '#include "foo.h"',
-              "Include the directory when naming header files  [build/include_subdir] [4]",
+          function_start = text.index("    def testBuildInclude(self):")
+          start = text.index("        self.TestLint(\n            '#include \"foo.h\"'", function_start)
+          end = text.index("        self.TestLint(\n            '#include \"package/impl.c++\"'", start)
+          replacement = (
+              "        self.TestLanguageRulesCheck(\n"
+              "            \"foo.cc\",\n"
+              "            '#include \"foo.h\"',\n"
+              "            \"\",\n"
+              "        )\n"
+              "        self.TestLanguageRulesCheck(\n"
+              "            \"src/foo.cc\",\n"
+              "            '#include \"foo.h\"',\n"
+              "            \"Include the directory when naming header files  [build/include_subdir] [4]\",\n"
+              "        )\n"
+              "        self.TestLanguageRulesCheck(\n"
+              "            \"src/foo.cc\",\n"
+              "            '#include \"bar.hh\"',\n"
+              "            \"Include the directory when naming header files  [build/include_subdir] [4]\",\n"
+              "        )\n"
           )
-          self.TestLint(
-              '#include "bar.hh"',
-              "Include the directory when naming header files  [build/include_subdir] [4]",
-          )
-          '''
-          new = '''        self.TestLanguageRulesCheck(
-              "foo.cc",
-              '#include "foo.h"',
-              "",
-          )
-          self.TestLanguageRulesCheck(
-              "src/foo.cc",
-              '#include "foo.h"',
-              "Include the directory when naming header files  [build/include_subdir] [4]",
-          )
-          self.TestLanguageRulesCheck(
-              "src/foo.cc",
-              '#include "bar.hh"',
-              "Include the directory when naming header files  [build/include_subdir] [4]",
-          )
-          '''
-          if text.count(old) != 1:
-              raise SystemExit("Could not locate testBuildInclude fixture")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
           PY
           git diff --check
 
@@ -87,22 +80,24 @@ jobs:
 
           source = Path("cpplint.py")
           text = source.read_text(encoding="utf-8")
-          old = '''    if (
-              match
-              and IsHeaderExtension(match.group(2))
-              and not _third_party_headers_pattern.match(match.group(1))
-          ):
-          '''
-          new = '''    if (
-              match
-              and os.path.dirname(fileinfo.RepositoryName())
-              and IsHeaderExtension(match.group(2))
-              and not _third_party_headers_pattern.match(match.group(1))
-          ):
-          '''
-          if text.count(old) != 1:
+          needle = (
+              "    if (\n"
+              "        match\n"
+              "        and IsHeaderExtension(match.group(2))\n"
+              "        and not _third_party_headers_pattern.match(match.group(1))\n"
+              "    ):\n"
+          )
+          replacement = (
+              "    if (\n"
+              "        match\n"
+              "        and os.path.dirname(fileinfo.RepositoryName())\n"
+              "        and IsHeaderExtension(match.group(2))\n"
+              "        and not _third_party_headers_pattern.match(match.group(1))\n"
+              "    ):\n"
+          )
+          if text.count(needle) != 1:
               raise SystemExit("Could not locate include_subdir condition")
-          source.write_text(text.replace(old, new, 1), encoding="utf-8")
+          source.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
 
           changelog = Path("CHANGELOG.rst")
           text = changelog.read_text(encoding="utf-8")
