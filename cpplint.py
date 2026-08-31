@@ -5853,6 +5853,7 @@ def CheckIncludeLine(filename, clean_lines, linenum, include_state, error):
     match = re.match(r'#include\s*"([^/]+\.(.*))"', line)
     if (
         match
+        and os.path.dirname(fileinfo.RepositoryName())
         and IsHeaderExtension(match.group(2))
         and not _third_party_headers_pattern.match(match.group(1))
     ):
