@@ -85,11 +85,8 @@ jobs:
 
           replace_once(
               '            if val not in ("emacs", "vs7", "eclipse", "junit", "sed", "gsed"):',
-              '            if val not in ("emacs", "vs7", "eclipse", "github", "junit", "sed", "gsed"): ',
+              '            if val not in ("emacs", "vs7", "eclipse", "github", "junit", "sed", "gsed"):',
           )
-          # Remove the deliberate trailing space introduced above so diff stays clean.
-          text = text.replace('("emacs", "vs7", "eclipse", "github", "junit", "sed", "gsed"): \n',
-                              '("emacs", "vs7", "eclipse", "github", "junit", "sed", "gsed"):\n')
 
           replace_once(
               '                    "The only allowed output formats are emacs, vs7, eclipse sed, gsed and junit."',
@@ -105,33 +102,37 @@ jobs:
               raise SystemExit("Could not locate cpplint_clitest.py insertion point")
           addition = r'''
 
+          def test_github_output(tmp_path):
+              cpp = tmp_path / "test.cpp"
+              cpp.write_text(
+                  "// Copyright 2026 cpplint\n"
+                  "int main() {\n"
+                  "  return 0; \n"
+                  "}\n"
+              )
 
-def test_github_output(tmp_path):
-    cpp = tmp_path / "test.cpp"
-    cpp.write_text(
-        "// Copyright 2026 cpplint\n"
-        "int main() {\n"
-        "  return 0; \n"
-        "}\n"
-    )
+              status, out, err = run_shell_command(
+                  BASE_CMD, "--output=github test.cpp", cwd=str(tmp_path)
+              )
 
-    status, out, err = run_shell_command(
-        BASE_CMD, "--output=github test.cpp", cwd=str(tmp_path)
-    )
-
-    assert status == 1
-    assert err == b""
-    assert out == (
-        b"::warning file=test.cpp,line=3,title=cpplint::"
-        b"Line ends in whitespace.  Consider deleting these extra spaces.  "
-        b"[whitespace/end_of_line] [4]\n"
-    )
+              assert status == 1
+              assert err == b""
+              assert out == (
+                  b"::warning file=test.cpp,line=3,title=cpplint::"
+                  b"Line ends in whitespace.  Consider deleting these extra spaces.  "
+                  b"[whitespace/end_of_line] [4]\n"
+              )
 
 
-def test_github_output_escaping():
-    assert cpplint._EscapeGithubCommandData("100%\r\n") == "100%25%0D%0A"
-    assert cpplint._EscapeGithubCommandProperty("a,b:c") == "a%2Cb%3Ac"
-'''
+          def test_github_output_escaping():
+              assert cpplint._EscapeGithubCommandData("100%\r\n") == "100%25%0D%0A"
+              assert cpplint._EscapeGithubCommandProperty("a,b:c") == "a%2Cb%3Ac"
+          '''
+          # The YAML block indentation becomes part of the raw test string; remove it.
+          addition = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in addition.splitlines()
+          )
           tests = tests.replace(marker, addition + marker, 1)
           test_path.write_text(tests, encoding="utf-8")
           PY
