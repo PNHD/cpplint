@@ -32,17 +32,29 @@ jobs:
           path = Path("cpplint_unittest.py")
           text = path.read_text(encoding="utf-8")
 
-          setup = (
+          root_setup = (
+              '        root_source = repo / "foo.cc"\n'
+              '        root_source.write_text("")\n'
+          )
+          root_replacement = root_setup + (
+              '        root_header = repo / "foo.h"\n'
+              '        root_header.write_text("")\n'
+          )
+          if text.count(root_setup) != 1:
+              raise SystemExit("Could not locate root source setup")
+          text = text.replace(root_setup, root_replacement, 1)
+
+          nested_setup = (
               '        nested_source = source_dir / "foo.cc"\n'
               '        nested_source.write_text("")\n'
           )
-          setup_replacement = setup + (
+          nested_replacement = nested_setup + (
               '        same_dir_header = source_dir / "utils.hpp"\n'
               '        same_dir_header.write_text("")\n'
           )
-          if text.count(setup) != 1:
+          if text.count(nested_setup) != 1:
               raise SystemExit("Could not locate nested source setup")
-          text = text.replace(setup, setup_replacement, 1)
+          text = text.replace(nested_setup, nested_replacement, 1)
 
           marker = (
               '        self.TestLanguageRulesCheck(\n'
@@ -82,7 +94,7 @@ jobs:
           grep -q "utils.hpp" /tmp/red.log
           grep -q "Include the directory when naming header files" /tmp/red.log
 
-      - name: Apply same-directory fix and update changelog
+      - name: Apply same-directory fix and update expectations
         shell: bash
         run: |
           python - <<'PY'
@@ -91,15 +103,23 @@ jobs:
           source = Path("cpplint.py")
           text = source.read_text(encoding="utf-8")
           needle = (
+              "    if (\n"
               "        match\n"
               "        and os.path.dirname(fileinfo.RepositoryName())\n"
               "        and IsHeaderExtension(match.group(2))\n"
           )
           replacement = (
+              "    same_dir_header = \"\"\n"
+              "    if match:\n"
+              "        same_dir_header = os.path.join(\n"
+              "            os.path.dirname(fileinfo.FullName()), match.group(1)\n"
+              "        )\n"
+              "    if (\n"
               "        match\n"
-              "        and os.path.dirname(fileinfo.RepositoryName())\n"
-              "        and not os.path.isfile(\n"
-              "            os.path.join(os.path.dirname(fileinfo.FullName()), match.group(1))\n"
+              "        and (\n"
+              "            not os.path.isfile(same_dir_header)\n"
+              "            or os.path.normcase(os.path.normpath(same_dir_header))\n"
+              "            == os.path.normcase(os.path.normpath(fileinfo.FullName()))\n"
               "        )\n"
               "        and IsHeaderExtension(match.group(2))\n"
           )
@@ -114,6 +134,26 @@ jobs:
           if text.count(old) != 1:
               raise SystemExit("Could not locate issue 375 changelog entry")
           changelog.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          updates = {
+              Path("samples/vlc-sample/simple.def"): (
+                  "Total errors found: 600\n",
+                  "Total errors found: 599\n",
+                  "src/libvlc.c:71:  Include the directory when naming header files  [build/include_subdir] [4]\n",
+              ),
+              Path("samples/codelite-sample/simple.def"): (
+                  "Total errors found: 675\n",
+                  "Total errors found: 674\n",
+                  "src/pptable.cpp:1:  Include the directory when naming header files  [build/include_subdir] [4]\n",
+              ),
+          }
+          for path, (old_total, new_total, obsolete_warning) in updates.items():
+              text = path.read_text(encoding="utf-8")
+              if text.count(old_total) != 1 or text.count(obsolete_warning) != 1:
+                  raise SystemExit(f"Could not update expected output in {path}")
+              text = text.replace(old_total, new_total, 1)
+              text = text.replace(obsolete_warning, "", 1)
+              path.write_text(text, encoding="utf-8")
           PY
           git diff --check
 
@@ -138,7 +178,7 @@ jobs:
       - name: Run repository pre-commit checks
         shell: bash
         run: |
-          pre-commit run --files CHANGELOG.rst cpplint.py cpplint_unittest.py
+          pre-commit run --files CHANGELOG.rst cpplint.py cpplint_unittest.py samples/vlc-sample/simple.def samples/codelite-sample/simple.def
           git diff --check
 
       - name: Commit verified follow-up
@@ -146,6 +186,6 @@ jobs:
         run: |
           git config user.name "Dang Pham"
           git config user.email "26757735+PNHD@users.noreply.github.com"
-          git add CHANGELOG.rst cpplint.py cpplint_unittest.py
+          git add CHANGELOG.rst cpplint.py cpplint_unittest.py samples/vlc-sample/simple.def samples/codelite-sample/simple.def
           git commit -m "fix: allow same-directory header includes"
           git push origin HEAD:fix/375-top-level-include
