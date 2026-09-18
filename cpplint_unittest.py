@@ -5878,6 +5878,69 @@ func2();""",
         self.TestLint('#include "Python.h"', "")
         self.TestLint('#include "lua.h"', "")
 
+    def testBuildIncludeSymlinkPath(self, tmp_path):
+        physical_dir = tmp_path / "physical"
+        (physical_dir / "child").mkdir(parents=True)
+        lexical_dir = tmp_path / "lexical"
+        lexical_dir.mkdir()
+        symlink = lexical_dir / "link"
+        try:
+            symlink.symlink_to(physical_dir / "child", target_is_directory=True)
+        except OSError as error:
+            pytest.skip(f"directory symlinks are unavailable: {error}")
+
+        source = physical_dir / "foo.cc"
+        source.write_text("")
+        source_path = symlink / ".." / source.name
+        same_dir_header = physical_dir / "utils.hpp"
+        same_dir_header.write_text("")
+        self.TestLanguageRulesCheck(str(source_path), '#include "utils.hpp"', "")
+
+        same_dir_header.unlink()
+        (lexical_dir / "utils.hpp").write_text("")
+        self.TestLanguageRulesCheck(
+            str(source_path),
+            '#include "utils.hpp"',
+            "Include the directory when naming header files  [build/include_subdir] [4]",
+        )
+
+    def testBuildIncludeSymlinkAlias(self, tmp_path):
+        source = tmp_path / "self.h"
+        source.write_text("")
+        expected = "Include the directory when naming header files  [build/include_subdir] [4]"
+
+        symlink = tmp_path / "symlink.h"
+        try:
+            symlink.symlink_to(source)
+        except OSError as error:
+            pytest.skip(f"file symlinks are unavailable: {error}")
+        self.TestLanguageRulesCheck(str(source), '#include "symlink.h"', expected)
+
+    def testBuildIncludeHardlinkAlias(self, tmp_path):
+        source = tmp_path / "self.h"
+        source.write_text("")
+        expected = "Include the directory when naming header files  [build/include_subdir] [4]"
+        hardlink = tmp_path / "hardlink.h"
+        try:
+            os.link(source, hardlink)
+        except OSError as error:
+            pytest.skip(f"hard links are unavailable: {error}")
+        self.TestLanguageRulesCheck(str(source), '#include "hardlink.h"', expected)
+
+    def testBuildIncludeInvalidHeaderPath(self, tmp_path):
+        source = tmp_path / "source.cc"
+        source.write_text("")
+        self.TestLanguageRulesCheck(
+            str(source),
+            '#include "bad\x00.h"',
+            "Include the directory when naming header files  [build/include_subdir] [4]",
+        )
+
+    def testBuildIncludeInvalidNonHeaderPath(self, tmp_path):
+        source = tmp_path / "source.cc"
+        source.write_text("")
+        self.TestLanguageRulesCheck(str(source), '#include "bad\x00.txt"', "")
+
     def testHppInclude(self):
         code = "\n".join(["#include <vector>", "#include <boost/any.hpp>"])
         self.TestLanguageRulesCheck("foo.h", code, "")
