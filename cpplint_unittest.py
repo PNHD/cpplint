@@ -5892,6 +5892,12 @@ func2();""",
         source = physical_dir / "foo.cc"
         source.write_text("")
         source_path = symlink / ".." / source.name
+        try:
+            if not source_path.exists() or not os.path.samefile(source_path, source):
+                pytest.skip("directory symlink paths do not resolve '..' through the target")
+        except OSError as error:
+            pytest.skip(f"directory symlink parent traversal is unavailable: {error}")
+
         same_dir_header = physical_dir / "utils.hpp"
         same_dir_header.write_text("")
         self.TestLanguageRulesCheck(str(source_path), '#include "utils.hpp"', "")
